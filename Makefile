@@ -71,7 +71,7 @@ train-sudoku-mlp:
 		data_paths="[$(STORAGE_ROOT)/data/sudoku-extreme-1k-aug-1000]" \
 		evaluators="[]" \
 		global_batch_size=64 \
-		epochs=100 eval_interval=5 \
+		epochs=10000 eval_interval=50 \
 		lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
 		arch.mlp_t=True arch.pos_encodings=none \
 		arch.L_layers=2 \
@@ -79,6 +79,22 @@ train-sudoku-mlp:
 		arch.halt_max_steps=8 \
 		+run_name=pretrain_mlp_t_sudoku_1gpu \
 		ema=True
+
+train-sudoku-mlp-checkoint:
+	python pretrain.py \
+		arch=trm \
+		data_paths="[$(STORAGE_ROOT)/data/sudoku-extreme-1k-aug-1000]" \
+		evaluators="[]" \
+		global_batch_size=64 \
+		epochs=10000 eval_interval=50 \
+		lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
+		arch.mlp_t=True arch.pos_encodings=none \
+		arch.L_layers=2 \
+		arch.H_cycles=3 arch.L_cycles=6 \
+		arch.halt_max_steps=8 \
+		+run_name=pretrain_mlp_t_sudoku_1gpu \
+		ema=True
+
 
 # Train Sudoku-Extreme with Attention (single GPU, memory-optimized)
 train-sudoku:
