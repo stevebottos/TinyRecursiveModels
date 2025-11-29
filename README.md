@@ -27,10 +27,12 @@ Tiny Recursion Model (TRM) recursively improves its predicted answer y with a ti
 pip install --upgrade pip wheel setuptools
 pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126 # install torch based on your cuda version
 pip install -r requirements.txt # install requirements
-wandb login YOUR-LOGIN # login if you want the logger to sync results to your Weights & Biases (https://wandb.ai/)
+pip install mlflow # for experiment tracking
 ```
 
-**Note:** The original code used `adam-atan2` optimizer, but the package is no longer maintained. The code has been updated to use `torch.optim.AdamW` instead, which works equivalently.
+**Notes:**
+- The original code used `adam-atan2` optimizer, but the package is no longer maintained. The code has been updated to use `torch.optim.AdamW` instead, which works equivalently.
+- The original code used Weights & Biases for experiment tracking. This has been replaced with MLflow for better local tracking and privacy.
 
 ### Dataset Preparation
 
@@ -51,12 +53,19 @@ python -m dataset.build_arc_dataset \
 
 ## Note: You cannot train on both ARC-AGI-1 and ARC-AGI-2 and evaluate them both because ARC-AGI-2 training data contains some ARC-AGI-1 eval data
 
-# Sudoku-Extreme
-python dataset/build_sudoku_dataset.py --output-dir data/sudoku-extreme-1k-aug-1000  --subsample-size 1000 --num-aug 1000  # 1000 examples, 1000 augments
+# Sudoku-Extreme (1000 examples, 1000 augments per example = 1,001,000 total)
+python dataset/build_sudoku_dataset.py --output-dir data/sudoku-extreme-1k-aug-1000  --subsample-size 1000 --num-aug 1000
 
-# Maze-Hard
-python dataset/build_maze_dataset.py # 1000 examples, 8 augments
+# Maze-Hard (1000 examples, 8 augments per example = 8,000 total)
+python dataset/build_maze_dataset.py --output-dir data/maze-30x30-hard-1k --aug
 ```
+
+**Important Note on Augmentation Sampling:**
+While the datasets pre-generate many augmentations (e.g., 1,001,000 for Sudoku), the dataloader does **not** iterate through all of them each epoch. Instead:
+- Each epoch samples **1 random augmentation** from each group (1,000 base puzzles)
+- This means ~15-16 batches per epoch for Sudoku at batch_size=64 (not 15,641!)
+- Different random augmentations are sampled each epoch, providing diversity over many epochs
+- This design enables fast epochs while still benefiting from augmentation variety
 
 ## Experiments
 
