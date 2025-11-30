@@ -43,6 +43,7 @@ class SynthDatasetSample(Dataset):
 
         query, synthetic_reasoning, synthetic_answer = row
 
+        conn.close()
         return {
             "query": query,
             "synthetic_reasoning": synthetic_reasoning,
