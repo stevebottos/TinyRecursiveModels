@@ -61,6 +61,22 @@ def prepare_targets_for_loss(
     return targets_modified
 
 
+def log_metrics(metrics, batch_size, lr_this_step, step, pbar):
+    count = max(metrics["count"].item(), 1)
+    train_metrics = {
+        f"train/{k}": (
+            v.item() / batch_size if k.endswith("loss") else v.item() / count
+        )
+        for k, v in metrics.items()
+    }
+    train_metrics["train/lr"] = lr_this_step
+
+    mlflow.log_metrics(flatten_metrics(train_metrics), step=step)
+
+    pbar.set_postfix(loss=f"{train_metrics['train/lm_loss']:.4f}")
+    pbar.update(1)
+
+
 def train():
     # Enable memory optimizations
     memops()
@@ -225,19 +241,7 @@ def train():
             ema_helper.update(model)
 
             # Metrics
-            count = max(metrics["count"].item(), 1)
-            train_metrics = {
-                f"train/{k}": (
-                    v.item() / batch_size if k.endswith("loss") else v.item() / count
-                )
-                for k, v in metrics.items()
-            }
-            train_metrics["train/lr"] = lr_this_step
-
-            mlflow.log_metrics(flatten_metrics(train_metrics), step=step)
-
-            pbar.set_postfix(loss=f"{train_metrics['train/lm_loss']:.4f}")
-            pbar.update(1)
+            log_metrics(metrics, batch_size, lr_this_step, step, pbar)
             step += 1
 
             # Eval
