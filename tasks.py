@@ -28,7 +28,7 @@ def get_synth_dataset_sample(c):
     print("\nCreating test split from last 1K samples...")
     # Take 1000 more for test, skip the first 1M
     test_samples = list(
-        tqdm(ds["train"].skip(1000).take(1_000), total=1_000, desc="Test")
+        tqdm(ds["train"].skip(1000).take(1000), total=1000, desc="Test")
     )
 
     print(f"Train samples: {len(train_samples)}")
