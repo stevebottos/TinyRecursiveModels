@@ -2,15 +2,12 @@ from typing import Tuple, List, Dict, Optional
 from dataclasses import dataclass
 import math
 import torch
-import copy
 import torch.nn.functional as F
 from torch import nn
 from pydantic import BaseModel
-import random
 from models.common import trunc_normal_init_
 from models.layers import (
     rms_norm,
-    LinearSwish,
     SwiGLU,
     Attention,
     RotaryEmbedding,
@@ -18,7 +15,6 @@ from models.layers import (
     CastedEmbedding,
     CastedLinear,
 )
-from models.sparse_embedding import CastedSparseEmbedding
 
 IGNORE_LABEL_ID = -100
 
@@ -140,58 +136,32 @@ class TinyRecursiveReasoningModel_ACTV1ReasoningModule(nn.Module):
 
 
 class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
-    def __init__(self, config: TinyRecursiveReasoningModel_ACTV1Config) -> None:
+    def __init__(
+        self, config: TinyRecursiveReasoningModel_ACTV1Config, pretrained_embed_layer
+    ) -> None:
         super().__init__()
         self.config = config
         self.forward_dtype = getattr(torch, self.config.forward_dtype)
 
-        # I/O
+        self.pretrained_embed_layer = pretrained_embed_layer
 
-        self.embed_scale = math.sqrt(self.config.hidden_size)
-        embed_init_std = 1.0 / self.embed_scale
+        # NOTE: Not using these
+        # self.embed_scale = math.sqrt(self.config.hidden_size)
+        # embed_init_std = 1.0 / self.embed_scale
+        self.puzzle_emb_len = 0
 
-        self.embed_tokens = CastedEmbedding(
-            self.config.vocab_size,
-            self.config.hidden_size,
-            init_std=embed_init_std,
-            cast_to=self.forward_dtype,
-        )
-        self.lm_head = CastedLinear(
-            self.config.hidden_size, self.config.vocab_size, bias=False
-        )
+        # Weight tying
+        n_vocab, dim = self.pretrained_embed_layer.weight.shape
+        self.lm_head = nn.Linear(dim, n_vocab)
+        self.lm_head.weight = self.pretrained_embed_layer.weight
+
         self.q_head = CastedLinear(self.config.hidden_size, 2, bias=True)
 
-        self.puzzle_emb_len = (
-            -(self.config.puzzle_emb_ndim // -self.config.hidden_size)
-            if self.config.puzzle_emb_len == 0
-            else self.config.puzzle_emb_len
-        )  # ceil div
-        if self.config.puzzle_emb_ndim > 0:
-            # Zero init puzzle embeddings
-            self.puzzle_emb = CastedSparseEmbedding(
-                self.config.num_puzzle_identifiers,
-                self.config.puzzle_emb_ndim,
-                batch_size=self.config.batch_size,
-                init_std=0,
-                cast_to=self.forward_dtype,
-            )
-
-        # LM Blocks
-        if self.config.pos_encodings == "rope":
-            self.rotary_emb = RotaryEmbedding(
-                dim=self.config.hidden_size // self.config.num_heads,
-                max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
-                base=self.config.rope_theta,
-            )
-        elif self.config.pos_encodings == "learned":
-            self.embed_pos = CastedEmbedding(
-                self.config.seq_len + self.puzzle_emb_len,
-                self.config.hidden_size,
-                init_std=embed_init_std,
-                cast_to=self.forward_dtype,
-            )
-        else:
-            pass
+        self.rotary_emb = RotaryEmbedding(
+            dim=self.config.hidden_size // self.config.num_heads,
+            max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
+            base=self.config.rope_theta,
+        )
 
         # Reasoning Layers
         self.L_level = TinyRecursiveReasoningModel_ACTV1ReasoningModule(
@@ -221,40 +191,35 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
             self.q_head.weight.zero_()
             self.q_head.bias.fill_(-5)  # type: ignore
 
-    def _input_embeddings(self, input: torch.Tensor, puzzle_identifiers: torch.Tensor):
-        # Token embedding
-        embedding = self.embed_tokens(input.to(torch.int32))
-
-        # Puzzle embeddings
-        if self.config.puzzle_emb_ndim > 0:
-            puzzle_embedding = self.puzzle_emb(puzzle_identifiers)
-
-            pad_count = (
-                self.puzzle_emb_len * self.config.hidden_size
-                - puzzle_embedding.shape[-1]
-            )
-            if pad_count > 0:
-                puzzle_embedding = F.pad(puzzle_embedding, (0, pad_count))
-
-            embedding = torch.cat(
-                (
-                    puzzle_embedding.view(
-                        -1, self.puzzle_emb_len, self.config.hidden_size
-                    ),
-                    embedding,
-                ),
-                dim=-2,
-            )
-
-        # Position embeddings
-        if self.config.pos_encodings == "learned":
-            # scale by 1/sqrt(2) to maintain forward variance
-            embedding = 0.707106781 * (
-                embedding + self.embed_pos.embedding_weight.to(self.forward_dtype)
-            )
-
-        # Scale
-        return self.embed_scale * embedding
+    # Note: This is the original input embeddings, just keeping
+    # it here for posterity - do we need the scale??
+    # def _input_embeddings(self, input: torch.Tensor, puzzle_identifiers: torch.Tensor):
+    #     # Token embedding
+    #     embedding = self.embed_tokens(input.to(torch.int32))
+    #
+    #     # Puzzle embeddings
+    #     if self.config.puzzle_emb_ndim > 0:
+    #         puzzle_embedding = self.puzzle_emb(puzzle_identifiers)
+    #
+    #         pad_count = (
+    #             self.puzzle_emb_len * self.config.hidden_size
+    #             - puzzle_embedding.shape[-1]
+    #         )
+    #         if pad_count > 0:
+    #             puzzle_embedding = F.pad(puzzle_embedding, (0, pad_count))
+    #
+    #         embedding = torch.cat(
+    #             (
+    #                 puzzle_embedding.view(
+    #                     -1, self.puzzle_emb_len, self.config.hidden_size
+    #                 ),
+    #                 embedding,
+    #             ),
+    #             dim=-2,
+    #         )
+    #
+    #     # Scale
+    #     return self.embed_scale * embedding
 
     def empty_carry(self, batch_size: int):
         return TinyRecursiveReasoningModel_ACTV1InnerCarry(
@@ -294,10 +259,9 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         seq_info = dict(
             cos_sin=self.rotary_emb() if hasattr(self, "rotary_emb") else None,
         )
-        # Input encoding
-        input_embeddings = self._input_embeddings(
-            batch["inputs"], batch["puzzle_identifiers"]
-        )
+
+        input_embeddings = self.pretrained_embed_layer(batch["inputs"])
+
         # Forward iterations
         it = 0
         z_H, z_L = carry.z_H, carry.z_L
@@ -311,7 +275,6 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         for _L_step in range(self.config.L_cycles):
             z_L = self.L_level(z_L, z_H + input_embeddings, **seq_info)
         z_H = self.L_level(z_H, z_L, **seq_info)
-        print(z_H.shape)
 
         # LM Outputs
         new_carry = TinyRecursiveReasoningModel_ACTV1InnerCarry(
@@ -321,18 +284,19 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         q_logits = self.q_head(z_H[:, 0]).to(
             torch.float32
         )  # Q-head; uses the first puzzle_emb position
-        print(q_logits.shape)
-        exit()
+
         return new_carry, output, (q_logits[..., 0], q_logits[..., 1])
 
 
 class TinyRecursiveReasoningModel_ACTV1(nn.Module):
     """ACT wrapper."""
 
-    def __init__(self, config_dict: dict):
+    def __init__(self, config_dict: dict, pretrained_embed_layer):
         super().__init__()
         self.config = TinyRecursiveReasoningModel_ACTV1Config(**config_dict)
-        self.inner = TinyRecursiveReasoningModel_ACTV1_Inner(self.config)
+        self.inner = TinyRecursiveReasoningModel_ACTV1_Inner(
+            self.config, pretrained_embed_layer
+        )
 
     @property
     def puzzle_emb(self):

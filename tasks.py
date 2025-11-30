@@ -6,45 +6,98 @@ load_dotenv(".env")
 
 
 @task
-def get_synth_dataset_sample(c):
-    from datasets import load_dataset
-    from tqdm import tqdm
-
-    output = os.getenv("DS_CACHE_DIR")
+def get_synth_dataset(c):
+    output = os.getenv("DS_OUT_DIR")
     assert os.path.exists(output)  # type: ignore
 
-    print("Loading SYNTH dataset with streaming...")
-    ds = load_dataset(
-        "PleIAs/SYNTH",
-        cache_dir=output,
-        streaming=True,
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(  # type: ignore
+        repo_id="PleIAs/SYNTH",
+        repo_type="dataset",
+        local_dir=os.path.join(output, "synth"),
+        local_dir_use_symlinks=False,
+        allow_patterns="*.parquet",  # Download only Parquet files
     )
 
-    print(f"Available splits: {list(ds.keys())}")
 
-    print("\nDownloading 1M train samples...")
-    train_samples = list(tqdm(ds["train"].take(1000), total=1000, desc="Train"))
+@task
+def process_synth_dataset(c):
+    import os
+    from pathlib import Path
+    import polars as pl
+    import sqlite3
+    from transformers import AutoTokenizer
 
-    print("\nCreating test split from last 1K samples...")
-    # Take 1000 more for test, skip the first 1M
-    test_samples = list(
-        tqdm(ds["train"].skip(1000).take(1_000), total=1_000, desc="Test")
+    MAX_TOKENS = 256
+
+    output = Path(os.getenv("DS_OUT_DIR")) / "synth"
+    db_path = Path(os.getenv("DS_OUT_DIR")) / "filtered_data.db"
+    parquets = list(output.glob("*.parquet"))
+    n_entries = 0
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+    # Setup SQLite
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS synth_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query TEXT,
+        synthetic_reasoning TEXT, 
+        synthetic_answer TEXT
     )
+    """)
+    # Clear existing data to prevent duplicates on subsequent runs
+    cursor.execute("DELETE FROM synth_data")
+    conn.commit()
 
-    print(f"Train samples: {len(train_samples)}")
-    print(f"Test samples: {len(test_samples)}")
+    for i, p in enumerate(parquets):
+        df = pl.read_parquet(p)
+        print(f"Original DataFrame length for file {i}: {len(df)}")
 
-    # Save to disk
-    from datasets import Dataset
+        df = df.with_columns(
+            [
+                pl.col("query")
+                .map_elements(lambda x: len(tokenizer.encode(x)), return_dtype=pl.Int64)
+                .alias("query_counts"),
+                pl.col("synthetic_answer")
+                .map_elements(lambda x: len(tokenizer.encode(x)), return_dtype=pl.Int64)
+                .alias("target_counts"),
+                pl.col("synthetic_reasoning")
+                .map_elements(lambda x: len(tokenizer.encode(x)), return_dtype=pl.Int64)
+                .alias("reasoning_counts"),
+            ]
+        )
 
-    train_ds = Dataset.from_list(train_samples)
-    test_ds = Dataset.from_list(test_samples)
+        filtered_df = df.filter(
+            (pl.col("query_counts") < MAX_TOKENS)
+            & (pl.col("reasoning_counts") < MAX_TOKENS)
+            & (pl.col("target_counts") < MAX_TOKENS)
+            & (pl.col("language") == "en")
+        )
 
-    save_path = os.path.join(output, "synth-sample")
-    os.makedirs(save_path, exist_ok=True)
+        # -- Debugging --
+        # Original 'processed file' print statement already shows rows in filtered_df
+        # We will clarify the output of that statement.
+        # -- End Debugging --
 
-    print(f"Saving to {save_path}...")
-    train_ds.save_to_disk(os.path.join(save_path, "train"))
-    test_ds.save_to_disk(os.path.join(save_path, "test"))
+        # Select columns and insert into SQLite
+        to_insert = filtered_df.select(
+            ["query", "synthetic_reasoning", "synthetic_answer"]
+        )
+        records = to_insert.iter_rows()
 
-    print("Done!")
+        cursor.executemany(
+            "INSERT INTO synth_data (query, synthetic_reasoning, synthetic_answer) VALUES (?, ?, ?)",
+            records,
+        )
+        conn.commit()
+
+        n_entries += len(filtered_df)
+        print(
+            f"Processed file {i}, added {len(filtered_df)} entries. Total entries: {n_entries}"
+        )
+
+    conn.close()
+    print(f"Finished processing. Data saved to {db_path}")
