@@ -281,9 +281,9 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
             z_H=z_H.detach(), z_L=z_L.detach()
         )  # New carry no grad
         output = self.lm_head(z_H)[:, self.puzzle_emb_len :]
-        q_logits = self.q_head(z_H[:, 0]).to(
+        q_logits = self.q_head(z_H.mean(dim=1)).to(
             torch.float32
-        )  # Q-head; uses the first puzzle_emb position
+        )  # Q-head; uses the mean of all hidden states
 
         return new_carry, output, (q_logits[..., 0], q_logits[..., 1])
 
