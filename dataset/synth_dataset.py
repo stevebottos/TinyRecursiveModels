@@ -1,7 +1,8 @@
 from dotenv import load_dotenv
 from torch.utils.data import Dataset
-from datasets import load_from_disk
 import os
+import sqlite3
+from pathlib import Path
 
 load_dotenv(".env")
 
@@ -9,37 +10,61 @@ load_dotenv(".env")
 class SynthDatasetSample(Dataset):
     def __init__(self, split="train"):
         self.split = split
-        self.data = self._load_data()
+        # self.data = self._load_data() # Removed as data is loaded directly via cursor
 
-    def _load_data(self):
-        cache_dir = os.getenv("DS_CACHE_DIR")
-        if not cache_dir:
-            raise ValueError("DS_CACHE_DIR environment variable not set.")
+        db_output_dir = os.getenv("DS_OUT_DIR")
+        if not db_output_dir:
+            print("Error: DS_OUT_DIR environment variable not set.")
+            exit(1)
+        self.db_path = Path(db_output_dir) / "filtered_data.db"
 
-        load_path = os.path.join(cache_dir, "synth-sample", self.split)
-
-        if not os.path.exists(load_path):
-            raise FileNotFoundError(
-                f"Dataset not found at {load_path}. Did you run 'invoke get-synth-dataset-sample'?"
-            )
-
-        return load_from_disk(load_path)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM synth_data")
+        self._length = cursor.fetchone()[0]
 
     def __len__(self):
-        return len(self.data)
+        return self._length
 
     def __getitem__(self, idx):
-        data = self.data[idx]
+        # Use LIMIT/OFFSET to get the row at the idx-th position
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT query, synthetic_reasoning,synthetic_answer FROM synth_data LIMIT 1 OFFSET ?",
+            (idx,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            raise IndexError(f"Index {idx} out of bounds")
+
+        query, synthetic_reasoning, synthetic_answer = row
 
         return {
-            "input": torch.from_numpy(puzzle_flat + 1).long(),
-            "target": torch.from_numpy(solution_flat + 1).long(),
+            "query": query,
+            "synthetic_reasoning": synthetic_reasoning,
+            "synthetic_answer": synthetic_answer,
             "puzzle_id": 0,  # All Sudoku puzzles use same embedding
         }
 
 
 if __name__ == "__main__":
     ds = SynthDatasetSample()
+    print(len(ds))
+    # Example of accessing items
+    if len(ds) > 0:
+        first_item = ds[0]
+        print(f"\nFirst item: {first_item}")
 
-    for e in iter(ds):
-        print(e["language"])
+        # Try accessing a few more items
+        if len(ds) > 5:
+            fifth_item = ds[4]
+            print(f"\nFifth item: {fifth_item}")
+
+    for i in range(min(3, len(ds))):
+        item = ds[i]
+        print(f"\nItem {i} keys: {item.keys()}")
+        print(f"Item {i} query: {item['query']}")
