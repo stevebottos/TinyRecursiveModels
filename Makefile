@@ -1,4 +1,4 @@
-STORAGE_ROOT = /media/steve/storage
+STORAGE_ROOT = /mnt/e/ml_proj
 
 .PHONY: get-arc1 get-arc2 get-sudoku get-maze prepare-data
 .PHONY: train-arc1 train-arc2 train-sudoku train-sudoku-mlp train-maze
@@ -80,7 +80,7 @@ train-sudoku-mlp:
 		+run_name=pretrain_mlp_t_sudoku_1gpu \
 		ema=True
 
-train-sudoku-mlp-checkoint:
+train-sudoku-mlp-checkpoint:
 	python pretrain.py \
 		arch=trm \
 		data_paths="[$(STORAGE_ROOT)/data/sudoku-extreme-1k-aug-1000]" \
