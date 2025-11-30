@@ -17,7 +17,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
 from dataset.synth_dataset import SynthDatasetSample
 from models.ema import EMAHelper
-from models.losses import ACTLossHead
+from models.losses import ACTLossHead, ACTLossHeadLang
 from models.recursive_reasoning.trm_lang import TinyRecursiveReasoningModel_ACTV1
 
 
@@ -127,7 +127,7 @@ def train():
         base_model = TinyRecursiveReasoningModel_ACTV1(
             model_config, pretrained_embed_layer=pretrained_embed_layer
         )
-        model = ACTLossHead(base_model, loss_type="stablemax_cross_entropy")
+        model = ACTLossHeadLang(base_model, loss_type="stablemax_cross_entropy")
 
         if "DISABLE_COMPILE" not in os.environ:
             model = torch.compile(model)
