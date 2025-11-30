@@ -53,7 +53,7 @@ def prepare_targets_for_loss(
     targets: torch.Tensor, pad_token_id: int, ignore_index: int = -100
 ) -> torch.Tensor:
     """
-    Replaces the pad_token_id in the target tensor with the ignore_index.
+    Replaces all but the first pad_token_id in the target tensor with the ignore_index.
     """
     pad_mask = targets == pad_token_id
     targets_modified = targets.masked_fill(pad_mask, ignore_index)
