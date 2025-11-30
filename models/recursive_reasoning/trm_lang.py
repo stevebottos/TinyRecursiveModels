@@ -144,6 +144,8 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
         self.forward_dtype = getattr(torch, self.config.forward_dtype)
 
         self.pretrained_embed_layer = pretrained_embed_layer
+        for param in self.pretrained_embed_layer.parameters():
+            param.requires_grad = False
 
         # NOTE: Not using these
         # self.embed_scale = math.sqrt(self.config.hidden_size)
@@ -152,7 +154,7 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
 
         # Weight tying
         n_vocab, dim = self.pretrained_embed_layer.weight.shape
-        self.lm_head = nn.Linear(dim, n_vocab)
+        self.lm_head = nn.Linear(dim, n_vocab, bias=False)
         self.lm_head.weight = self.pretrained_embed_layer.weight
 
         self.q_head = CastedLinear(self.config.hidden_size, 2, bias=True)
