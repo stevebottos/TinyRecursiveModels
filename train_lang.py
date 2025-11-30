@@ -54,34 +54,8 @@ def prepare_targets_for_loss(
 ) -> torch.Tensor:
     """
     Replaces the pad_token_id in the target tensor with the ignore_index.
-
-    Args:
-        targets (torch.Tensor): The target labels tensor, e.g., [batch_size, seq_len].
-        pad_token_id (int): The token ID used for padding (e.g., tokenizer.eos_token_id).
-        ignore_index (int): The index value to ignore during loss calculation (default: -100).
-
-    Returns:
-        torch.Tensor: The modified target tensor ready for cross-entropy loss calculation.
     """
-    # Create a mask where all instances of the pad_token_id are True
     pad_mask = targets == pad_token_id
-
-    # Check if the sequence is shifted (as is common in causal language modeling)
-    # The actual EOS token at the end of the text should be kept.
-    # We only want to ignore the EOS tokens used solely for padding.
-
-    # A simple but robust way to handle this for common use cases (like shifting)
-    # is to first assume all pads should be ignored, then adjust if needed.
-
-    # For *causal language modeling* (e.g., GPT-2):
-    # If the targets are created by SHIFTING the input, the last *non-padding* token
-    # in the input maps to the *actual* EOS token in the target.
-    # The EOS IDs that appear *after* the true end of the sequence are the ones for padding.
-
-    # We will assume a standard implementation where the pad_token_id is ONLY
-    # present in the target tensor as padding, and not as a valid token to predict.
-
-    # Replace all tokens that match the pad_token_id with the ignore_index
     targets_modified = targets.masked_fill(pad_mask, ignore_index)
 
     return targets_modified
