@@ -1,4 +1,7 @@
 .python-version
 __pycache__
 uv.lock
-
+.claude
+.env
+mlruns
+outputs
